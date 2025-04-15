@@ -62,7 +62,7 @@ export default function App() {
       remaining--;
     }
 
-    const result = stores.map((store, i) => \`\${store.name}\t\${store.sales}元\t\${baseAlloc[i]}件\`).join("\n");
+    const result = stores.map((store, i) => `${store.name}\t${store.sales}元\t${baseAlloc[i]}件`).join("\n");
     setOutput(result);
   }
 
