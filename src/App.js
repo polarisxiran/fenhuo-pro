@@ -1,75 +1,25 @@
 import { useState } from "react";
-import * as XLSX from "xlsx"; // 导入xlsx库
+import * as XLSX from "xlsx";
 
 export default function App() {
   const [input, setInput] = useState("");
   const [totalGoods, setTotalGoods] = useState("");
-  const [output, setOutput] = useState("");
+  const [output, setOutput] = useState([]);
 
-  // 处理粘贴事件
-  const handlePaste = (e) => {
-    const pastedData = e.clipboardData.getData("Text");
-    const formattedData = pastedData
-      .trim()
-      .replace(/\r?\n/g, "\n") // 确保换行符统一
-      .replace(/\t/g, " ");    // 将 Tab 键转换为空格（可根据需求修改）
-    
-    setInput(formattedData);
-    e.preventDefault(); // 阻止默认行为
-  };
-
-  // 处理文件上传
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const binaryString = event.target.result;
-        const workbook = XLSX.read(binaryString, { type: "binary" });
-        
-        // 解析第一个工作表（sheet）
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        
-        // 转换表格数据为 JSON 格式
-        const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-
-        // 提取店名和销售额，假设第一列是店名，第二列是销售额
-        const storesData = jsonData.map(row => {
-          const name = row[0]; // 店名
-          const sales = parseFloat(row[1]); // 销售额
-          return { name, sales };
-        });
-
-        // 将数据格式化为字符串形式，用于输入框显示
-        const formattedInput = storesData
-          .map(store => `${store.name} ${store.sales}`)
-          .join("\n");
-
-        setInput(formattedInput);
-      };
-      reader.readAsBinaryString(file);
-    }
-  };
-
-  function parseAndAllocate() {
-    const lines = input.trim().split("\n");
-    const stores = lines.map((line) => {
-      const [name, salesStr] = line.split(/\s+/); // 按空格分割
-      const sales = parseFloat(salesStr);
-      return { name, sales };
-    });
-
+  const parseAndAllocate = () => {
+    let rows = input.trim().split("\n").map((line) => line.split(/\t|\s{2,}|,|\s/).filter(Boolean));
+    let stores = rows.map(([name, salesStr]) => ({ name, sales: parseFloat(salesStr) }));
     const total = parseInt(totalGoods);
+
     if (isNaN(total) || total <= 0 || stores.length === 0) {
-      setOutput("请输入有效的总货量和门店数据。");
+      setOutput([["请输入有效的总货量和门店数据"]]);
       return;
     }
 
     const baseAlloc = stores.map(() => 1);
     let remaining = total - stores.length;
-
     if (remaining < 0) {
-      setOutput("门店数量超过总货量，无法保证每店1件。");
+      setOutput([["门店数量超过总货量，无法保证每店1件"]]);
       return;
     }
 
@@ -108,13 +58,43 @@ export default function App() {
       remaining--;
     }
 
-    const result = stores.map((store, i) => `${store.name}\t${store.sales}元\t${baseAlloc[i]}件`).join("\n");
+    const result = stores.map((store, i) => [store.name, `${store.sales}元`, `${baseAlloc[i]}件`]);
     setOutput(result);
-  }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const bstr = evt.target.result;
+      const wb = XLSX.read(bstr, { type: "binary" });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const cleanRows = data.filter(row => row.length >= 2 && row[1] !== undefined);
+      const formatted = cleanRows.map(row => `${row[0]}\t${row[1]}`).join("\n");
+      setInput(formatted);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const exportToExcel = () => {
+    const ws = XLSX.utils.aoa_to_sheet([["门店", "销售额", "分配件数"], ...output]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "分货结果");
+    XLSX.writeFile(wb, "分货结果.xlsx");
+  };
+
+  const clearAll = () => {
+    setInput("");
+    setTotalGoods("");
+    setOutput([]);
+  };
 
   return (
-    <div style={{ maxWidth: 600, margin: '2rem auto', padding: '1rem' }}>
+    <div style={{ maxWidth: 800, margin: '2rem auto', padding: '1rem' }}>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>门店分货神器 Pro</h1>
+
       <input
         type="number"
         placeholder="请输入总货量（件）"
@@ -122,25 +102,41 @@ export default function App() {
         onChange={(e) => setTotalGoods(e.target.value)}
         style={{ width: '100%', margin: '1rem 0', padding: '0.5rem' }}
       />
-      
-      {/* 上传文件按钮 */}
-      <input
-        type="file"
-        accept=".xlsx, .xls"
-        onChange={handleFileUpload}
-        style={{ width: '100%', margin: '1rem 0', padding: '0.5rem' }}
-      />
 
       <textarea
-        placeholder="请输入门店及销售额（每行：门店名 空格 销售额）"
+        placeholder="请输入门店及销售额（可直接从Excel复制两列数据）"
         rows={10}
         value={input}
         onChange={(e) => setInput(e.target.value)}
-        onPaste={handlePaste} // 监听粘贴事件
         style={{ width: '100%', padding: '0.5rem', fontFamily: 'monospace' }}
       />
-      <button onClick={parseAndAllocate} style={{ marginTop: '1rem', padding: '0.5rem 1rem' }}>开始分货</button>
-      <pre style={{ marginTop: '1rem', background: '#f9f9f9', padding: '1rem', whiteSpace: 'pre-wrap' }}>{output}</pre>
+
+      <input type="file" accept=".xls,.xlsx" onChange={handleFileUpload} style={{ margin: '1rem 0' }} />
+
+      <div style={{ margin: '1rem 0' }}>
+        <button onClick={parseAndAllocate} style={{ marginRight: 10, padding: '0.5rem 1rem' }}>开始分货</button>
+        <button onClick={exportToExcel} style={{ marginRight: 10, padding: '0.5rem 1rem' }}>导出Excel</button>
+        <button onClick={clearAll} style={{ padding: '0.5rem 1rem' }}>清空</button>
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem' }}>
+        <thead>
+          <tr>
+            <th style={{ border: '1px solid #ccc', padding: '0.5rem' }}>门店</th>
+            <th style={{ border: '1px solid #ccc', padding: '0.5rem' }}>销售额</th>
+            <th style={{ border: '1px solid #ccc', padding: '0.5rem' }}>分配件数</th>
+          </tr>
+        </thead>
+        <tbody>
+          {output.map((row, idx) => (
+            <tr key={idx}>
+              {row.map((cell, i) => (
+                <td key={i} style={{ border: '1px solid #ccc', padding: '0.5rem' }}>{cell}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
